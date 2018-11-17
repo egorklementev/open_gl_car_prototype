@@ -20,8 +20,8 @@ void processInput(GLFWwindow *window);
 unsigned int loadTexture(const char *path);
 
 // settings
-const unsigned int SCR_WIDTH = 1280;
-const unsigned int SCR_HEIGHT = 768;
+const unsigned int SCR_WIDTH = 1640;
+const unsigned int SCR_HEIGHT = 1024;
 
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -32,13 +32,6 @@ bool firstMouse = true;
 // timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
-
-// car 
-glm::vec3 front;
-glm::vec3 carInertia(0.0f, 0.0f, 0.0f);
-glm::vec3 carPos(0.0f, 0.0f, 0.0f);
-float carRot = 0.0f;
-bool drive_back = false;
 
 // lighting
 glm::vec3 lightDir(-0.2f, -1.0f, -0.3f);
@@ -102,16 +95,82 @@ int main()
 
     // configure global opengl state
     // -----------------------------
-    glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glEnable(GL_CULL_FACE);
+	glEnable(GL_DEPTH_TEST);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // build and compile shader programs
-    // ------------------------------------
+	// build and compile shader programs
+	// ------------------------------------
 	Shader worldShader("world_v.glsl", "world_f.glsl");
+	Shader transShader("world_v.glsl", "trans_f.glsl");
+	Shader frameShader("frame_v.glsl", "frame_f.glsl");
+
+	frameShader.use();
+	frameShader.setInt("screenTexture", 0);
+
+#pragma region Framebuffer
+	unsigned int framebuffer;
+	glGenFramebuffers(1, &framebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+	unsigned int texColorBuffer;
+	glGenTextures(1, &texColorBuffer);
+	glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texColorBuffer, 0);
+
+	unsigned int rbo;
+	glGenRenderbuffers(1, &rbo);
+	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#pragma endregion initialization
+#pragma region Rectangle vertices
+	float quadVertices[] = { // vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+							 // positions   // texCoords
+		-1.0f,  1.0f,  0.0f, 1.0f,
+		-1.0f, -1.0f,  0.0f, 0.0f,
+		1.0f, -1.0f,  1.0f, 0.0f,
+
+		-1.0f,  1.0f,  0.0f, 1.0f,
+		1.0f, -1.0f,  1.0f, 0.0f,
+		1.0f,  1.0f,  1.0f, 1.0f
+	};
+	// screen quad VAO
+	unsigned int quadVAO, quadVBO;
+	glGenVertexArrays(1, &quadVAO);
+	glGenBuffers(1, &quadVBO);
+	glBindVertexArray(quadVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+#pragma endregion
+
+#pragma region CubeMap
+	unsigned int cubeMapID;
+	glGenTextures(1, &cubeMapID);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapID);
+#pragma endregion
 
 	// load models
 	// -----------
 	Model carModel("resources/objects/car/five_ex_car.obj");
 	Model roadModel("resources/objects/road/road.obj");
+	Model grassModel("resources/objects/grass/grass.obj");
 
 	// For FPS counting
 	int nbFrames = 0;
@@ -133,6 +192,8 @@ int main()
 
 		// render
 		// ------
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+		glEnable(GL_DEPTH_TEST);
 		glClearColor(0.125f, 0.1125f, 0.2f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -142,58 +203,69 @@ int main()
 
 		// light properties
 		worldShader.setVec3("light.direction", lightDir);
-		worldShader.setVec3("light.ambient", 0.1f, 0.1f, 0.1f);
+		worldShader.setVec3("light.ambient", 0.5f, 0.5f, 0.5f);
 		worldShader.setVec3("light.diffuse", 0.8f, 0.8f, 0.8f);
 		worldShader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
 
 		// material properties
 		worldShader.setFloat("material.shininess", 64.0f);
 
+		// light properties
+		transShader.use();
+		transShader.setVec3("light.direction", lightDir);
+		transShader.setVec3("light.ambient", 0.5f, 0.5f, 0.5f);
+		transShader.setVec3("light.diffuse", 0.8f, 0.8f, 0.8f);
+		transShader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
+
+		// material properties
+		transShader.setFloat("material.shininess", 64.0f);
+
 		// view/projection transformations
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 		glm::mat4 view = camera.GetViewMatrix();
+		worldShader.use();
 		worldShader.setMat4("projection", projection);
 		worldShader.setMat4("view", view);
 
-		// render the loaded model
+		// Car
 		glm::mat4 model = glm::mat4(1.0f);
 		model = glm::scale(model, glm::vec3(0.2f, 0.2f, 0.2f));
-		
-		// car forces
-		front.x = cos(glm::radians(-carRot)) * cos(glm::radians(0.0f));
-		front.y = sin(glm::radians(0.0f));
-		front.z = sin(glm::radians(-carRot)) * cos(glm::radians(0.0f));
-		front = glm::normalize(front);
-
-		carPos -= carInertia;
-		if (glm::length(carInertia) > 0.0001f) 
-		{
-			carInertia -= carInertia * 0.0001f;
-			if (drive_back) 
-			{
-				carInertia = front * glm::length(carInertia);
-			}
-			else
-			{
-				carInertia = -front * glm::length(carInertia);
-			}
-		}
-		else 
-		{
-			carInertia = glm::vec3(0.0f);
-		}
-		
-		model = glm::translate(model, carPos);
-		model = glm::rotate(model, glm::radians(carRot), glm::vec3(0.0, 1.0, 0.0));
+		model = glm::translate(model, glm::vec3(1.0f, 1.0f, 1.0f));
 		worldShader.setMat4("model", model);
 		carModel.Draw(worldShader);
 
 		// Road
 		model = glm::mat4(1.0f);
-		model = glm::translate(model, glm::vec3(0.0f, -0.4f, 0.0f));
+		model = glm::translate(model, glm::vec3(0.0f, -0.2f, 0.0f));
 		model = glm::scale(model, glm::vec3(0.1f, 0.1f, 0.1f));
 		worldShader.setMat4("model", model);
 		roadModel.Draw(worldShader);
+
+		// Grass
+		model = glm::mat4(1.0f);
+		model = glm::translate(model, glm::vec3(2.0f, 0.0f, 0.0f));
+		model = glm::scale(model, glm::vec3(0.2f, 0.2f, 0.2f));
+		transShader.use();
+		transShader.setVec3("viewPos", camera.Position);
+		transShader.setMat4("projection", projection);
+		transShader.setMat4("view", view);
+		transShader.setMat4("model", model);
+		grassModel.Draw(transShader);
+
+		// Unbind VAO
+		glBindVertexArray(0);
+
+		// framebuffer comes in !!! HELL YEAH !!!
+		// --------------------------------------
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glDisable(GL_DEPTH_TEST);
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		frameShader.use();
+		glBindVertexArray(quadVAO);
+		glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
@@ -204,12 +276,15 @@ int main()
 		nbFrames++;
 		if (currentFrame - lastTime >= 1.0) { // 1 sec
 		// print FPS and reset timer
-			//printf("%d FPS\n", nbFrames);
+			printf("%d FPS\n", nbFrames);
 			nbFrames = 0;
 			lastTime += 1.0;
 		}
 
     }
+
+	glDeleteVertexArrays(1, &quadVAO);
+	glDeleteBuffers(1, &quadVBO);
 
 	// Save camera data
 	std::ofstream fout("saved_data.edf");
@@ -239,39 +314,6 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
-
-
-	// Car movement
-	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-		if (glm::length(carInertia) < 0.065f)
-		{
-			drive_back = false;
-			carInertia -= 0.0002f * front;
-		}
-	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-		if (glm::length(carInertia) < 0.065f)
-		{
-			carInertia += 0.000175f * front;
-			drive_back = true;
-		}
-	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-		carRot += 0.25f;
-	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-		carRot -= 0.25f;
-
-	// Light direction
-	if (glfwGetKey(window, GLFW_KEY_KP_1) == GLFW_PRESS)
-		lightDir.x -= 0.01f;
-	if (glfwGetKey(window, GLFW_KEY_KP_2) == GLFW_PRESS)
-		lightDir.x += 0.01f;
-	if (glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS)
-		lightDir.y -= 0.01f;
-	if (glfwGetKey(window, GLFW_KEY_KP_5) == GLFW_PRESS)
-		lightDir.y += 0.01f;
-	if (glfwGetKey(window, GLFW_KEY_KP_7) == GLFW_PRESS)
-		lightDir.z -= 0.01f;
-	if (glfwGetKey(window, GLFW_KEY_KP_8) == GLFW_PRESS)
-		lightDir.z += 0.01f;
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -282,7 +324,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
 }
-
 
 // glfw: whenever the mouse moves, this callback is called
 // -------------------------------------------------------

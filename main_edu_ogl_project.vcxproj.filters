@@ -58,5 +58,14 @@
     <None Include="world_v.glsl">
       <Filter>Shader Files</Filter>
     </None>
+    <None Include="trans_f.glsl">
+      <Filter>Shader Files</Filter>
+    </None>
+    <None Include="frame_f.glsl">
+      <Filter>Shader Files</Filter>
+    </None>
+    <None Include="frame_v.glsl">
+      <Filter>Shader Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

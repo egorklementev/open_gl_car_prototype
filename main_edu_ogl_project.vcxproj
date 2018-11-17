@@ -69,8 +69,8 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>C:\projects\CPP\OpenGL projects\Libraries\Includes;$(IncludePath)</IncludePath>
-    <LibraryPath>C:\projects\CPP\OpenGL projects\Libraries\Libs;$(LibraryPath)</LibraryPath>
+    <IncludePath>D:\projects\cpp\open_gl_libs\Libraries\Includes;$(IncludePath)</IncludePath>
+    <LibraryPath>D:\projects\cpp\open_gl_libs\Libraries\Libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <IncludePath>C:\projects\CPP\OpenGL projects\Libraries\Includes;$(IncludePath)</IncludePath>
@@ -135,6 +135,9 @@
     <ClInclude Include="stb_image.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="frame_f.glsl" />
+    <None Include="frame_v.glsl" />
+    <None Include="trans_f.glsl" />
     <None Include="world_f.glsl" />
     <None Include="world_v.glsl" />
   </ItemGroup>
